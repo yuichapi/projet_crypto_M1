@@ -1,0 +1,123 @@
+import dataclasses
+
+import numpy as np
+
+import utils
+
+TorusInt32 = np.int32
+
+@dataclasses.dataclass
+class LweConfig:
+    # Size of the LWE encryption key.
+    dimension: int
+
+    # Standard deviation of the encryption noise.
+    noise_std: float
+
+
+@dataclasses.dataclass
+class LwePlaintext:
+    message: TorusInt32  # element de T
+
+
+@dataclasses.dataclass
+class LweCiphertext:
+    config: LweConfig
+    a: np.ndarray   # vecteur dans T^n
+    b: TorusInt32   # b = <a,s> + mu + e  dans T
+
+
+@dataclasses.dataclass
+class LweEncryptionKey:
+    config: LweConfig
+    key: np.ndarray  # An int32 array of size config.dimension
+
+
+def lwe_encode(i: int) -> LwePlaintext:
+    """Encode an integer in [-4,4) as an LWE plaintext."""
+    return LwePlaintext(utils.encode(i))
+
+
+def lwe_decode(plaintext: LwePlaintext) -> int:
+    """Decode an LWE plaintext to an integer in [-4,4) mod 8."""
+    return utils.decode(plaintext.message)
+
+
+def lwe_encode_bool(b: bool) -> LwePlaintext:
+    """Encode a boolean as an LWE plaintext."""
+    return LwePlaintext(utils.encode_bool(b))
+
+
+def lwe_decode_bool(plaintext: LwePlaintext) -> bool:
+    """Decode an LWE plaintext to a boolean."""
+    return utils.decode_bool(plaintext.message)
+
+
+def generate_lwe_key(config: LweConfig) -> LweEncryptionKey:
+    return LweEncryptionKey(
+        config=config,
+        key=np.random.randint(
+            low=0, high=2, size=(config.dimension,), dtype=np.int32
+        ),
+    )
+
+
+def lwe_encrypt(
+    plaintext: LwePlaintext, key: LweEncryptionKey
+) -> LweCiphertext:
+    a = utils.uniform_sample_int32(size=key.config.dimension)
+    noise = utils.gaussian_sample_int32(std=key.config.noise_std, size=None)
+
+    # b = (a, key) + message + noise
+    b = np.add(np.dot(a, key.key), plaintext.message, dtype=np.int32)
+    b = np.add(b, noise, dtype=np.int32)
+
+    return LweCiphertext(config=key.config, a=a, b=b)
+
+
+def lwe_decrypt(
+    ciphertext: LweCiphertext, key: LweEncryptionKey
+) -> LwePlaintext:
+    return LwePlaintext(
+        np.subtract(ciphertext.b, np.dot(ciphertext.a, key.key), dtype=np.int32)
+    )
+
+
+def lwe_trivial_ciphertext(plaintext: LwePlaintext, config: LweConfig):
+    """Generate a trivial encryption of the plaintext."""
+    return LweCiphertext(
+        config=config,
+        a=np.zeros(config.dimension, dtype=np.int32),
+        b=plaintext.message,
+    )
+
+
+def lwe_add(
+    ciphertext_left: LweCiphertext, ciphertext_right: LweCiphertext
+) -> LweCiphertext:
+    """Homomorphically add two LWE ciphertexts."""
+    return LweCiphertext(
+        ciphertext_left.config,
+        np.add(ciphertext_left.a, ciphertext_right.a, dtype=np.int32),
+        np.add(ciphertext_left.b, ciphertext_right.b, dtype=np.int32),
+    )
+
+
+def lwe_subtract(
+    ciphertext_left: LweCiphertext, ciphertext_right: LweCiphertext
+) -> LweCiphertext:
+    """Homomorphically subtract two LWE ciphertexts."""
+    return LweCiphertext(
+        ciphertext_left.config,
+        np.subtract(ciphertext_left.a, ciphertext_right.a, dtype=np.int32),
+        np.subtract(ciphertext_left.b, ciphertext_right.b, dtype=np.int32),
+    )
+
+
+def lwe_plaintext_multiply(c: int, ciphertext: LweCiphertext) -> LweCiphertext:
+    """Homomorphically multiply an LWE ciphertext with a plaintext integer."""
+    return LweCiphertext(
+        ciphertext.config,
+        np.multiply(c, ciphertext.a, dtype=np.int32),
+        np.multiply(c, ciphertext.b, dtype=np.int32),
+    )
